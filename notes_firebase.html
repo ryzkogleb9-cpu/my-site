@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Заметки</title>
+
+  <!-- Firebase compat (работает без type=module, без bundler) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root {
+      --accent:    #4a90d9;
+      --accent-dk: #357abd;
+      --bg:        #f7f8fa;
+      --surface:   #ffffff;
+      --border:    #e4e7ec;
+      --text:      #1a1d23;
+      --muted:     #8a92a0;
+      --danger:    #e05a5a;
+      --success:   #3cba6f;
+      --radius:    10px;
+      --shadow:    0 2px 12px rgba(0,0,0,.07);
+      --tab-h:     58px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 0 16px;
+    }
+
+    header {
+      max-width: 680px; margin: 0 auto;
+      padding: 24px 0 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .header-top {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 12px;
+    }
+    header h1 { font-size: clamp(20px,5vw,26px); font-weight:600; letter-spacing:-.5px; }
+
+    .sync-row { display:flex; align-items:center; gap:6px; }
+    .sync-dot {
+      width:7px; height:7px; border-radius:50%;
+      background:var(--muted); flex-shrink:0; transition:background .3s;
+    }
+    .sync-dot.ok   { background:var(--success); }
+    .sync-dot.busy { background:var(--accent); animation:blink 1s infinite; }
+    .sync-dot.err  { background:var(--danger); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .sync-txt { font-size:11px; color:var(--muted); }
+
+    .search-wrap { position:relative; }
+    .search-icon {
+      position:absolute; left:11px; top:50%;
+      transform:translateY(-50%); color:var(--muted);
+      font-size:14px; pointer-events:none;
+    }
+    .search-input {
+      width:100%; padding:9px 34px 9px 34px;
+      font-size:14px; font-family:inherit;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; outline:none; color:var(--text);
+      transition:border-color .15s, box-shadow .15s;
+    }
+    .search-input::placeholder { color:var(--muted); }
+    .search-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(74,144,217,.12); }
+    .search-clear {
+      position:absolute; right:7px; top:50%;
+      transform:translateY(-50%);
+      background:none; border:none; color:var(--muted);
+      font-size:15px; padding:4px 6px; cursor:pointer;
+      border-radius:4px; display:none; line-height:1;
+    }
+    .search-clear:hover { color:var(--text); }
+    .search-clear.on { display:block; }
+    .search-count { font-size:12px; color:var(--muted); min-height:17px; padding-left:2px; }
+
+    button { font-family:inherit; cursor:pointer; border:none; outline:none; border-radius:8px; transition:background .15s,color .15s,opacity .15s; }
+    .btn-new { background:var(--accent); color:#fff; padding:9px 18px; font-size:14px; font-weight:500; }
+    .btn-new:hover { background:var(--accent-dk); }
+    .btn-new:disabled { opacity:.5; cursor:not-allowed; }
+
+    .list {
+      max-width:680px; margin:0 auto;
+      display:flex; flex-direction:column; gap:10px;
+      padding-bottom:calc(var(--tab-h) + 24px);
+    }
+
+    .card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); box-shadow:var(--shadow);
+      overflow:hidden; animation:pop .18s ease;
+    }
+    @keyframes pop { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+    .card-row { display:flex; align-items:center; gap:6px; padding:13px 14px; }
+    .card-title {
+      flex:1; font-size:15px; font-weight:500; color:var(--text);
+      background:transparent; border:none; outline:none;
+      min-width:0; padding:2px 0; font-family:inherit;
+    }
+    .card-title::placeholder { color:var(--muted); }
+    .card-date  { font-size:11px; color:var(--muted); white-space:nowrap; flex-shrink:0; }
+    .card-size  { font-size:11px; color:var(--accent); white-space:nowrap; flex-shrink:0; font-variant-numeric:tabular-nums; }
+    .card-acts  { display:flex; gap:2px; flex-shrink:0; }
+
+    .ic { background:transparent; color:var(--muted); font-size:15px; padding:5px 7px; border-radius:6px; line-height:1; }
+    .ic:hover { background:var(--bg); color:var(--text); }
+    .ic.danger:hover { color:var(--danger); }
+    .ic.pub-ic { font-size:13px; }
+    .ic.pub-ic.on { color:var(--success); }
+    .ic.pub-ic.on:hover { color:var(--danger); }
+
+    .del-bar {
+      display:none; align-items:center; gap:6px;
+      padding:10px 14px; border-top:1px solid var(--border);
+      background:#fff5f5; font-size:13px; color:var(--danger);
+    }
+    .del-bar.on { display:flex; }
+    .del-bar span { flex:1; }
+    .del-yes { background:var(--danger); color:#fff; padding:5px 12px; font-size:12px; }
+    .del-yes:hover { opacity:.85; }
+    .del-no  { background:var(--bg); color:var(--muted); padding:5px 10px; font-size:12px; border:1px solid var(--border); }
+    .del-no:hover { background:var(--border); color:var(--text); }
+
+    .editor { display:none; border-top:1px solid var(--border); padding:12px 14px 14px; }
+    .editor.on { display:block; }
+    .editor-ta {
+      width:100%; min-height:140px; resize:none;
+      border:1px solid var(--border); border-radius:7px;
+      padding:10px 12px; font-size:14px; line-height:1.7;
+      color:var(--text); font-family:Georgia,serif;
+      background:var(--bg); outline:none;
+      transition:border-color .15s; overflow:hidden;
+    }
+    .editor-ta:focus { border-color:var(--accent); }
+    .save-lbl { font-size:11px; color:var(--muted); margin-top:6px; text-align:right; min-height:15px; }
+    .ed-foot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:8px; }
+    .btn-close { background:var(--bg); color:var(--muted); padding:7px 16px; font-size:13px; border:1px solid var(--border); }
+    .btn-close:hover { background:var(--border); color:var(--text); }
+    .btn-pub { background:var(--success); color:#fff; padding:7px 16px; font-size:13px; }
+    .btn-pub:hover { opacity:.85; }
+    .btn-pub.off { background:#eee; color:var(--muted); }
+    .btn-pub.off:hover { background:var(--border); color:var(--danger); }
+
+    .empty { text-align:center; padding:64px 20px; color:var(--muted); font-size:15px; }
+    .empty span { display:block; font-size:34px; margin-bottom:12px; }
+
+    .skel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px; display:flex; gap:10px; }
+    .skel-ln { height:13px; border-radius:5px; background:linear-gradient(90deg,#eee 25%,#f5f5f5 50%,#eee 75%); background-size:200% 100%; animation:sh 1.2s infinite; }
+    @keyframes sh { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    #toast {
+      position:fixed; bottom:calc(var(--tab-h)+14px); left:50%;
+      transform:translateX(-50%) translateY(12px);
+      background:#1a1d23; color:#fff; font-size:13px;
+      padding:8px 20px; border-radius:20px;
+      opacity:0; pointer-events:none;
+      transition:opacity .2s,transform .2s;
+      white-space:nowrap; z-index:999;
+    }
+    #toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    .tabs {
+      position:fixed; bottom:0; left:0; right:0;
+      height:var(--tab-h); background:var(--surface);
+      border-top:1px solid var(--border);
+      display:flex; z-index:100;
+      box-shadow:0 -2px 10px rgba(0,0,0,.06);
+    }
+    .tab {
+      flex:1; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:3px;
+      background:transparent; border:none; border-radius:0;
+      color:var(--muted); font-size:11px; font-weight:500;
+      padding:8px 0; cursor:pointer; position:relative;
+      transition:color .15s,background .15s;
+    }
+    .tab .ti { font-size:20px; line-height:1; }
+    .tab.on { color:var(--accent); }
+    .tab.on::before {
+      content:''; position:absolute; top:0; left:25%; right:25%;
+      height:2px; background:var(--accent); border-radius:0 0 2px 2px;
+    }
+    .tab:hover { background:var(--bg); }
+
+    .page { display:none; }
+    .page.on { display:block; }
+
+    .pub-card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); box-shadow:var(--shadow);
+      overflow:hidden; animation:pop .18s ease;
+    }
+    .pub-head {
+      display:flex; align-items:center; gap:8px;
+      padding:13px 14px; cursor:pointer;
+    }
+    .pub-head:hover { background:#fafbfc; }
+    .pub-title {
+      flex:1; font-size:15px; font-weight:500; color:var(--text);
+      min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .pub-meta { display:flex; gap:8px; flex-shrink:0; align-items:center; }
+    .pub-size  { font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; }
+    .pub-date  { font-size:11px; color:var(--muted); white-space:nowrap; }
+    .pub-badge { font-size:10px; font-weight:600; background:rgba(60,186,111,.12); color:var(--success); border-radius:4px; padding:2px 6px; }
+    .pub-body  { display:none; border-top:1px solid var(--border); padding:12px 14px 14px; }
+    .pub-body.on { display:block; }
+    .pub-text  {
+      font-size:14px; line-height:1.7; font-family:Georgia,serif; color:var(--text);
+      white-space:pre-wrap; word-break:break-word;
+      background:var(--bg); border:1px solid var(--border);
+      border-radius:7px; padding:10px 12px; min-height:50px;
+    }
+    .pub-foot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:8px; }
+    .btn-copy-pub { background:var(--accent); color:#fff; padding:7px 16px; font-size:13px; }
+    .btn-copy-pub:hover { background:var(--accent-dk); }
+    .btn-collapse { background:var(--bg); color:var(--muted); padding:7px 14px; font-size:13px; border:1px solid var(--border); }
+    .btn-collapse:hover { background:var(--border); color:var(--text); }
+
+    .hl-span {
+      flex:1; font-size:15px; font-weight:500; color:var(--text);
+      padding:2px 0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+
+    @media(max-width:480px){ .card-date { display:none; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <h1 id="pgTitle">Заметки</h1>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="sync-row">
+        <div class="sync-dot" id="sDot"></div>
+        <span class="sync-txt" id="sTxt">подключение…</span>
+      </div>
+      <button class="btn-new" id="btnNew">+ Новая</button>
+    </div>
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input id="sInput" class="search-input" type="search" placeholder="Поиск…" autocomplete="off"/>
+    <button id="sClear" class="search-clear">✕</button>
+  </div>
+  <div id="sCount" class="search-count"></div>
+</header>
+
+<div id="pgMain" class="page on">
+  <main id="listMain" class="list"></main>
+</div>
+<div id="pgPub" class="page">
+  <main id="listPub" class="list"></main>
+</div>
+
+<div id="toast"></div>
+
+<nav class="tabs">
+  <button class="tab on" id="tabMain">
+    <span class="ti">📋</span><span>Main</span>
+  </button>
+  <button class="tab" id="tabPub">
+    <span class="ti">🌐</span><span>Public</span>
+  </button>
+</nav>
+
+<script>
+/* ══════════════════════════════════════════
+   Firebase init
+══════════════════════════════════════════ */
+firebase.initializeApp({
+  apiKey:            "AIzaSyBdGcfyarumgDAdqH7r--1IgoePCHPBdA0",
+  authDomain:        "notes-3d573.firebaseapp.com",
+  projectId:         "notes-3d573",
+  storageBucket:     "notes-3d573.firebasestorage.app",
+  messagingSenderId: "4758258116",
+  appId:             "1:4758258116:web:fae80651695172a5102491"
+});
+const db = firebase.firestore();
+
+/* ══════════════════════════════════════════
+   Device ID
+══════════════════════════════════════════ */
+function getDeviceId() {
+  let id = localStorage.getItem('napp_device');
+  if (!id) {
+    id = Date.now().toString(36) + Math.random().toString(36).slice(2,9);
+    localStorage.setItem('napp_device', id);
+  }
+  return id;
+}
+const DEV      = getDeviceId();
+const notesRef = () => db.collection('devices').doc(DEV).collection('notes');
+const pubRef   = () => db.collection('public_notes');
+
+/* ══════════════════════════════════════════
+   Sync статус
+══════════════════════════════════════════ */
+function sync(state) {
+  document.getElementById('sDot').className = 'sync-dot ' + state;
+  document.getElementById('sTxt').textContent = {ok:'Синхронизировано',busy:'Сохранение…',err:'Ошибка сети'}[state]||'';
+}
+
+/* ══════════════════════════════════════════
+   Утилиты
+══════════════════════════════════════════ */
+function fmt(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+}
+
+let _tt;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(_tt);
+  _tt = setTimeout(()=>el.classList.remove('on'), 1900);
+}
+
+function copyText(text) {
+  const done = ()=>toast('Скопировано ✓');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(()=>legacyCopy(text,done));
+  } else { legacyCopy(text,done); }
+}
+function legacyCopy(text,done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); done(); } catch(e){}
+  document.body.removeChild(ta);
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function calcSize(note) {
+  const b = new TextEncoder().encode((note.title||'')+(note.body||'')).length;
+  const k = b/1024;
+  return k<0.01?'< 0.01 KB':k.toFixed(2)+' KB';
+}
+
+function hlText(text,q) {
+  if (!q) return esc(text);
+  const s = esc(text), sq = esc(q).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return s.replace(new RegExp(`(${sq})`,'gi'),'<mark style="background:#fde68a;border-radius:2px;padding:0 1px">$1</mark>');
+}
+
+function fitH(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
+
+/* ══════════════════════════════════════════
+   Состояние
+══════════════════════════════════════════ */
+let notes    = [];
+let pubNotes = [];
+let curTab   = 'main';
+let queries  = { main:'', pub:'' };
+
+/* ══════════════════════════════════════════
+   Firestore слушатели
+══════════════════════════════════════════ */
+function startListeners() {
+  showSkels('listMain', 3);
+
+  notesRef().orderBy('updatedAt','desc').onSnapshot(snap => {
+    notes = snap.docs.map(d=>({id:d.id,...d.data()}));
+    sync('ok');
+    if (curTab==='main') renderMain();
+  }, err => { console.error(err); sync('err'); });
+
+  pubRef().orderBy('publishedAt','desc').onSnapshot(snap => {
+    pubNotes = snap.docs.map(d=>({id:d.id,...d.data()}));
+    if (curTab==='pub') renderPub();
+  }, err => console.error(err));
+}
+
+/* ══════════════════════════════════════════
+   CRUD
+══════════════════════════════════════════ */
+async function createNote() {
+  sync('busy');
+  try {
+    const data = { title:'', body:'', published:false, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    const ref  = await notesRef().add(data);
+    sync('ok');
+    return { id:ref.id, title:'', body:'', published:false, updatedAt:new Date() };
+  } catch(e) { sync('err'); toast('Ошибка создания'); return null; }
+}
+
+async function saveNote(id, fields) {
+  sync('busy');
+  try {
+    await notesRef().doc(id).update({ ...fields, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    const n = notes.find(x=>x.id===id);
+    if (n && n.published) {
+      await pubRef().doc(id).update({ ...fields, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    sync('ok');
+  } catch(e) { sync('err'); }
+}
+
+async function deleteNote(id) {
+  sync('busy');
+  try {
+    const n = notes.find(x=>x.id===id);
+    await notesRef().doc(id).delete();
+    if (n && n.published) await pubRef().doc(id).delete();
+    sync('ok');
+  } catch(e) { sync('err'); }
+}
+
+async function doPublish(id) {
+  const n = notes.find(x=>x.id===id);
+  if (!n) return;
+  sync('busy');
+  try {
+    await notesRef().doc(id).update({ published:true });
+    await pubRef().doc(id).set({
+      title: n.title, body: n.body,
+      publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt:   firebase.firestore.FieldValue.serverTimestamp()
+    });
+    sync('ok'); toast('Опубликовано ✓');
+  } catch(e) { sync('err'); toast('Ошибка публикации'); }
+}
+
+async function doUnpublish(id) {
+  sync('busy');
+  try {
+    await notesRef().doc(id).update({ published:false });
+    await pubRef().doc(id).delete();
+    sync('ok'); toast('Публикация снята');
+  } catch(e) { sync('err'); }
+}
+
+/* ══════════════════════════════════════════
+   Вкладки
+══════════════════════════════════════════ */
+document.getElementById('tabMain').addEventListener('click', ()=>switchTab('main'));
+document.getElementById('tabPub').addEventListener('click',  ()=>switchTab('pub'));
+
+function switchTab(t) {
+  curTab = t;
+  document.getElementById('tabMain').classList.toggle('on', t==='main');
+  document.getElementById('tabPub').classList.toggle('on',  t==='pub');
+  document.getElementById('pgMain').classList.toggle('on',  t==='main');
+  document.getElementById('pgPub').classList.toggle('on',   t==='pub');
+  document.getElementById('pgTitle').textContent = t==='main' ? 'Заметки' : 'Публичные';
+  document.getElementById('btnNew').style.display = t==='main' ? '' : 'none';
+  const si = document.getElementById('sInput');
+  si.value = queries[t]||'';
+  document.getElementById('sClear').classList.toggle('on', !!si.value);
+  updCount(); renderCurrent();
+}
+
+/* ══════════════════════════════════════════
+   Поиск
+══════════════════════════════════════════ */
+document.getElementById('sInput').addEventListener('input', function(){
+  queries[curTab] = this.value;
+  document.getElementById('sClear').classList.toggle('on', !!this.value);
+  updCount(); renderCurrent();
+});
+document.getElementById('sClear').addEventListener('click', ()=>{
+  document.getElementById('sInput').value = '';
+  queries[curTab] = '';
+  document.getElementById('sClear').classList.remove('on');
+  document.getElementById('sCount').textContent = '';
+  renderCurrent();
+  document.getElementById('sInput').focus();
+});
+
+function updCount() {
+  const qv = queries[curTab]||'';
+  const el = document.getElementById('sCount');
+  if (!qv) { el.textContent=''; return; }
+  const arr = curTab==='main' ? notes : pubNotes;
+  const f   = arr.filter(n=>(n.title||'').toLowerCase().includes(qv)||(n.body||'').toLowerCase().includes(qv));
+  el.textContent = f.length ? `Найдено: ${f.length} из ${arr.length}` : 'Ничего не найдено';
+}
+
+function renderCurrent() { curTab==='main' ? renderMain() : renderPub(); }
+
+/* ══════════════════════════════════════════
+   Рендер Main
+══════════════════════════════════════════ */
+function renderMain() {
+  const el = document.getElementById('listMain');
+  el.innerHTML = '';
+  const qv  = (queries.main||'').trim().toLowerCase();
+  const arr = qv ? notes.filter(n=>(n.title||'').toLowerCase().includes(qv)||(n.body||'').toLowerCase().includes(qv)) : notes;
+  if (!notes.length) { el.innerHTML='<div class="empty"><span>📄</span>Нет заметок — нажмите «+ Новая»</div>'; return; }
+  if (!arr.length)   { el.innerHTML='<div class="empty"><span>🔍</span>По запросу ничего не найдено</div>';    return; }
+  arr.forEach(n => el.appendChild(buildCard(n, qv)));
+}
+
+/* ══════════════════════════════════════════
+   Рендер Public
+══════════════════════════════════════════ */
+function renderPub() {
+  const el = document.getElementById('listPub');
+  el.innerHTML = '';
+  const qv  = (queries.pub||'').trim().toLowerCase();
+  const arr = qv ? pubNotes.filter(n=>(n.title||'').toLowerCase().includes(qv)||(n.body||'').toLowerCase().includes(qv)) : pubNotes;
+  if (!pubNotes.length) { el.innerHTML='<div class="empty"><span>🌐</span>Нет опубликованных заметок</div>'; return; }
+  if (!arr.length)      { el.innerHTML='<div class="empty"><span>🔍</span>По запросу ничего не найдено</div>';  return; }
+  arr.forEach(n => el.appendChild(buildPubCard(n, qv)));
+}
+
+/* Скелетоны */
+function showSkels(id, n) {
+  const el = document.getElementById(id); el.innerHTML='';
+  for (let i=0;i<n;i++) {
+    el.innerHTML += `<div class="skel"><div class="skel-ln" style="flex:1"></div><div class="skel-ln" style="width:38px"></div><div class="skel-ln" style="width:48px"></div></div>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   Main карточка
+══════════════════════════════════════════ */
+function buildCard(note, qv) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const pub = !!note.published;
+
+  card.innerHTML = `
+    <div class="card-row">
+      <input class="card-title" type="text" value="${esc(note.title)}" placeholder="Без названия"/>
+      <span class="card-size">${calcSize(note)}</span>
+      <span class="card-date">${fmt(note.updatedAt)}</span>
+      <div class="card-acts">
+        <button class="ic btn-copy" title="Копировать">⎘</button>
+        <button class="ic pub-ic${pub?' on':''}" title="${pub?'Снять публикацию':'Опубликовать'}">${pub?'🌐':'📤'}</button>
+        <button class="ic btn-edit" title="Редактировать">✎</button>
+        <button class="ic danger btn-del" title="Удалить">✕</button>
+      </div>
+    </div>
+    <div class="del-bar">
+      <span>Удалить заметку?</span>
+      <button class="del-no">Отмена</button>
+      <button class="del-yes">Удалить</button>
+    </div>
+    <div class="editor">
+      <textarea class="editor-ta" placeholder="Начните печатать…">${esc(note.body)}</textarea>
+      <div class="save-lbl"></div>
+      <div class="ed-foot">
+        <button class="btn-pub${pub?' off':''}">${pub?'📤 Снять публикацию':'🌐 Опубликовать'}</button>
+        <button class="btn-close">Закрыть</button>
+      </div>
+    </div>`;
+
+  if (qv) {
+    const ti = card.querySelector('.card-title');
+    const sp = document.createElement('span');
+    sp.className='hl-span'; sp.innerHTML=hlText(note.title||'',qv);
+    ti.parentNode.insertBefore(sp,ti);
+    ti.style.cssText='opacity:0;position:absolute;pointer-events:none';
+  }
+
+  const titleEl = card.querySelector('.card-title');
+  const copyB   = card.querySelector('.btn-copy');
+  const pubIc   = card.querySelector('.pub-ic');
+  const editB   = card.querySelector('.btn-edit');
+  const delB    = card.querySelector('.btn-del');
+  const delBar  = card.querySelector('.del-bar');
+  const editor  = card.querySelector('.editor');
+  const ta      = card.querySelector('.editor-ta');
+  const lbl     = card.querySelector('.save-lbl');
+  const sizeEl  = card.querySelector('.card-size');
+  const dateEl  = card.querySelector('.card-date');
+  const pubBtn  = card.querySelector('.btn-pub');
+  const closeB  = card.querySelector('.btn-close');
+  const delYes  = card.querySelector('.del-yes');
+  const delNo   = card.querySelector('.del-no');
+
+  editB.addEventListener('click',  ()=>{ editor.classList.add('on'); fitH(ta); ta.focus(); });
+  closeB.addEventListener('click', ()=>editor.classList.remove('on'));
+
+  async function togglePub() {
+    const n = notes.find(x=>x.id===note.id);
+    if (!n) return;
+    if (n.published) {
+      await doUnpublish(note.id);
+      pubBtn.textContent='🌐 Опубликовать'; pubBtn.classList.remove('off');
+      pubIc.textContent='📤'; pubIc.classList.remove('on'); pubIc.title='Опубликовать';
+    } else {
+      await doPublish(note.id);
+      pubBtn.textContent='📤 Снять публикацию'; pubBtn.classList.add('off');
+      pubIc.textContent='🌐'; pubIc.classList.add('on'); pubIc.title='Снять публикацию';
+    }
+  }
+  pubBtn.addEventListener('click', togglePub);
+  pubIc.addEventListener('click',  togglePub);
+
+  let st;
+  ta.addEventListener('input', ()=>{
+    fitH(ta); lbl.textContent='…';
+    clearTimeout(st);
+    st = setTimeout(async()=>{
+      await saveNote(note.id, {body:ta.value});
+      const n=notes.find(x=>x.id===note.id);
+      if(n){ n.body=ta.value; sizeEl.textContent=calcSize(n); }
+      lbl.textContent='Сохранено';
+      setTimeout(()=>lbl.textContent='',1400);
+    }, 800);
+  });
+  ta.addEventListener('keydown', e=>{
+    if ((e.ctrlKey||e.metaKey)&&e.key==='s') {
+      e.preventDefault(); clearTimeout(st);
+      saveNote(note.id,{body:ta.value}).then(()=>{
+        lbl.textContent='Сохранено'; setTimeout(()=>lbl.textContent='',1400);
+      });
+    }
+  });
+
+  let ht;
+  titleEl.addEventListener('input', function(){
+    clearTimeout(ht);
+    ht = setTimeout(async()=>{
+      await saveNote(note.id,{title:this.value});
+      const n=notes.find(x=>x.id===note.id);
+      if(n){ n.title=this.value; sizeEl.textContent=calcSize(n); dateEl.textContent=fmt(new Date()); }
+    }, 600);
+  });
+
+  copyB.addEventListener('click', ()=>{
+    const n=notes.find(x=>x.id===note.id);
+    copyText(n ? n.body||'' : '');
+  });
+
+  delB.addEventListener('click',  ()=>delBar.classList.add('on'));
+  delNo.addEventListener('click', ()=>delBar.classList.remove('on'));
+  delYes.addEventListener('click', async()=>{
+    await deleteNote(note.id);
+    card.style.cssText='transition:opacity .2s,transform .2s;opacity:0;transform:scale(.98)';
+    setTimeout(()=>{ card.remove(); if(!document.getElementById('listMain').querySelector('.card')) renderMain(); },220);
+  });
+
+  return card;
+}
+
+/* ══════════════════════════════════════════
+   Public карточка
+══════════════════════════════════════════ */
+function buildPubCard(note, qv) {
+  const card = document.createElement('div');
+  card.className = 'pub-card';
+  card.innerHTML = `
+    <div class="pub-head">
+      <span class="pub-title">${hlText(note.title||'Без названия',qv)}</span>
+      <div class="pub-meta">
+        <span class="pub-size">${calcSize(note)}</span>
+        <span class="pub-date">${fmt(note.publishedAt)}</span>
+        <span class="pub-badge">Public</span>
+      </div>
+    </div>
+    <div class="pub-body">
+      <div class="pub-text">${esc(note.body||'')}</div>
+      <div class="pub-foot">
+        <button class="btn-copy-pub">⎘ Копировать</button>
+        <button class="btn-collapse">Закрыть</button>
+      </div>
+    </div>`;
+
+  const head  = card.querySelector('.pub-head');
+  const body  = card.querySelector('.pub-body');
+  const copyB = card.querySelector('.btn-copy-pub');
+  const colB  = card.querySelector('.btn-collapse');
+
+  head.addEventListener('click',  ()=>body.classList.toggle('on'));
+  colB.addEventListener('click',  ()=>body.classList.remove('on'));
+  copyB.addEventListener('click', ()=>copyText(note.body||''));
+  return card;
+}
+
+/* ══════════════════════════════════════════
+   Новая заметка
+══════════════════════════════════════════ */
+document.getElementById('btnNew').addEventListener('click', async()=>{
+  const btn = document.getElementById('btnNew');
+  btn.disabled = true;
+  const note = await createNote();
+  btn.disabled = false;
+  if (!note) return;
+
+  const listEl = document.getElementById('listMain');
+  const empty  = listEl.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const card = buildCard(note,'');
+  listEl.insertBefore(card, listEl.firstChild);
+  card.querySelector('.card-title').focus();
+});
+
+/* ══════════════════════════════════════════
+   Запуск
+══════════════════════════════════════════ */
+sync('busy');
+startListeners();
+</script>
+</body>
+</html>
